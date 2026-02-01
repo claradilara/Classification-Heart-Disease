@@ -1,0 +1,179 @@
+---
+title: "Heart Disease Risk Analysis: A Data-Driven Journey"
+author: "Dilara Ozdil (474544)"
+output: html_document
+---
+
+# Aim
+Heart disease is a major global health issue. This project aims to uncover hidden patterns in heart disease risk factors using Principal Component Analysis (PCA), Clustering (K-Means), and Association Rule Mining (Apriori Algorithm). The goal is to simplify complex medical data and identify key risk factors that contribute to heart disease.
+
+# Methodology
+
+## Data Preprocessing
+- Cleaned and standardized patient data (cholesterol, blood pressure, ECG, etc.).
+- Separated numerical and categorical features.
+
+## PCA (Principal Component Analysis)
+- Reduced multiple risk factors into four key components (PC1-PC4).
+- PC1 captured cholesterol & BP (cardiovascular risk), PC2 linked to exercise response, PC3 showed stress markers, and PC4 represented ECG/metabolic abnormalities.
+
+## Clustering (K-Means & Hierarchical)
+- Identified three risk groups: Low, Moderate, and High Risk.
+- High-risk patients had high cholesterol, BP, and ischemia markers.
+
+## Association Rule Mining (Apriori Algorithm)
+- Discovered frequent risk factor interactions.
+
+---
+
+---
+## Feature Descriptions
+
+-age: Age of the patient (in years)
+-sex: Sex of the patient (1 = male, 0 = female)
+-cp: Chest pain type (1-4)
+-trestbps: Resting blood pressure (in mm Hg on admission to the hospital)
+-chol: Serum cholesterol in mg/dl
+-fbs: Fasting blood sugar > 120 mg/dl (1 = true; 0 = false)
+-restecg: Resting electrocardiographic results (0-2)
+-thalach: Maximum heart rate achieved
+-exang: Exercise-induced angina (1 = yes; 0 = no)
+-oldpeak: ST depression induced by exercise relative to rest
+---
+
+## Load Libraries
+```{r setup, message=FALSE, warning=FALSE}
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(arules)
+library(arulesViz)
+library(FactoMineR)
+library(factoextra)
+library(psych)
+library(corrplot)
+```
+
+## Load Data
+```{r}
+setwd("C:/Users/ozdil/Downloads")
+life <- read.csv("USL project2/archive (1)/heart-disease.csv")
+head(life)
+```
+
+## Data Preprocessing
+```{r}
+categorical_columns <- c("sex", "cp", "fbs", "restecg", "exang", "slope", "ca", "thal")
+sum(is.na(life))  # Check for missing values
+life <- na.omit(life)  # Remove missing values
+
+# Separate features
+df_features <- life %>% select(-target)
+df_numeric <- df_features %>% select(-one_of(categorical_columns))
+
+# Standardize numerical features
+df_scaled <- as.data.frame(scale(df_numeric))
+df_scaled_full <- cbind(df_scaled, df_features[, categorical_columns])
+```
+
+## Principal Component Analysis (PCA)
+```{r}
+fa.parallel(df_scaled_full, fa = "pc", n.iter = 100)
+pca_model <- prcomp(df_scaled_full, center = TRUE, scale. = TRUE)
+summary(pca_model)
+```
+
+### Scree Plot & Variance Explained
+```{r}
+screeplot(pca_model, type = "lines", main = "Scree Plot")
+fviz_eig(pca_model, addlabels = TRUE, main = "Cumulative Variance Explained by PCs")
+factoextra::fviz_pca_var(pca_model, col.var="contrib")
+```
+
+## Clustering (K-Means & Hierarchical)
+```{r}
+fviz_nbclust(df_scaled, kmeans, method = "wss")
+set.seed(123)
+kmeans_result <- kmeans(df_scaled, centers = 3)
+fviz_cluster(kmeans_result, data = df_scaled)
+```
+
+### Hierarchical Clustering
+```{r}
+hclust_result <- hclust(dist(df_scaled))
+fviz_dend(hclust_result, k = 3)
+```
+
+---
+CLUSTER CHARACTERISTIHCS
+
+- Cluster 1 (Low-Risk Group): Low PC1 (cholesterol, BP) & low PC3 (no ischemia/blockages)
+- Cluster 2 (Moderate-Risk Group): Moderate PC1, PC3 & PC4 (some risk factors but not extreme)
+- Cluster 3 (High-Risk Group): High PC1 (cholesterol, BP) & high PC3 (blockages & ischemia)
+---
+
+## Association Rule Mining (Apriori Algorithm)
+```{r}
+pca_data_discrete <- data.frame(
+  PC1 = discretize(pca_model$x[,1], method = "frequency", breaks = 3),
+  PC2 = discretize(pca_model$x[,2], method = "frequency", breaks = 3),
+  PC3 = discretize(pca_model$x[,3], method = "frequency", breaks = 3),
+  PC4 = discretize(pca_model$x[,4], method = "frequency", breaks = 3)
+)
+
+pca_data_trans <- as(pca_data_discrete, "transactions")
+rules <- apriori(pca_data_trans, parameter = list(supp = 0.1, conf = 0.8))
+inspect(head(rules))
+```
+
+---
+- PC1, PC2, PC3, and PC4 have strong interrelationships.
+- Higher PC2 often correlates with higher PC1.
+- Low PC1 is linked with moderate PC3 and high PC4.
+- Lift values (~2.5) indicate strong associations.
+- Confidence (~80-83%) suggests reliable rules.
+- There are hidden patterns in the data that might predict heart disease risk.
+- If PC1 (which might represent cholesterol, age, and blood pressure) is high, it often correlates with PC2 being high, meaning these features are linked.
+- This method could help identify risk groups based on the most important factors from PCA.
+---
+
+## Visualizing Cluster Characteristics
+```{r}
+library(ggplot2)
+df_pca <- as.data.frame(pca_model$x)  # Extract PCA-transformed data
+df_pca$Cluster <- as.factor(kmeans_result$cluster)
+
+ggplot(df_pca, aes(x = Cluster, y = PC1, fill = Cluster)) +
+  geom_boxplot() +
+  theme_minimal() +
+  ggtitle("Distribution of PC1 Across Clusters")
+
+rule_clusters <- table(df_pca$Cluster, pca_data_discrete$PC1)
+rule_clusters_df <- as.data.frame(rule_clusters)
+colnames(rule_clusters_df) <- c("Cluster", "PC1_Bin", "Count")
+
+ggplot(rule_clusters_df, aes(x = PC1_Bin, y = Count, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  ggtitle("Frequency of PC1 Rules in Each Cluster")
+```
+
+---
+- Cluster 1 has low PC1 (low cholesterol & BP).
+- Cluster 3 has high PC1, indicating high cardiovascular risk.
+- This confirms that PC1 strongly contributes to defining high-risk clusters.
+---
+
+## Correlation Analysis
+```{r}
+cor_matrix <- cor(pca_model$x[,1:4], df_numeric)
+corrplot(cor_matrix, method = "color", tl.cex = 0.8)
+```
+
+## Results & Insights
+- PC1, PC2, PC3, and PC4 have strong interrelationships.
+- Higher PC2 often correlates with higher PC1.
+- Low PC1 is linked with moderate PC3 and high PC4.
+- PCA simplified risk factor analysis, allowing early detection of high-risk individuals.
+- Clustering revealed groups with distinct heart disease risk levels.
+- Association Rules confirmed strong correlations between high cholesterol, exercise response, and ischemia.
